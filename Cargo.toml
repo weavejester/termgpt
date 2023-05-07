@@ -7,3 +7,7 @@ edition = "2021"
 
 [dependencies]
 reedline = "0.19.0"
+reqwest = { version = "0.11.17", features = ["json", "stream"] }
+tokio = { version = "1.28.0", features = ["full"] }
+serde = { version = "1.0.162", features = ["derive"] }
+serde_json = "1.0"
