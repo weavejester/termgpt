@@ -2,6 +2,8 @@ use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline, Signal};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::env;
+use termimad::MadSkin;
+use termimad::crossterm::style::Color;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -48,10 +50,17 @@ async fn get_chatgpt_response(
     Ok(response)
 }
 
+fn termimad_skin() -> MadSkin {
+    let mut skin = MadSkin::default_dark();
+    skin.paragraph.set_fg(Color::AnsiValue(249));
+    skin
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let api_key = env::var("OPENAI_API_KEY")?;
     let model = "gpt-3.5-turbo";
+    let skin = termimad_skin();
 
     let mut line_editor = Reedline::create();
     let prompt = DefaultPrompt::new(
@@ -70,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let resp = get_chatgpt_response(&api_key, model, &messages);
                 let mesg = resp.await?.choices.pop().unwrap().message;
 
-                println!("{}", mesg.content);
+                print!("{}", skin.term_text(&mesg.content));
                 messages.push(mesg);
             }
             Signal::CtrlD | Signal::CtrlC => {
