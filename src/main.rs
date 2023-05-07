@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::env;
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Role { Assistant, User }
+
 #[derive(Serialize)]
 struct ChatGptRequest<'a> {
     model: &'a str,
@@ -21,7 +25,7 @@ struct ChatGptChoice {
 
 #[derive(Deserialize, Serialize)]
 struct ChatGptMessage {
-    role: String,
+    role: Role,
     content: String,
 }
 
@@ -61,20 +65,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let sig = line_editor.read_line(&prompt)?;
         match sig {
             Signal::Success(content) => {
-                messages.push(ChatGptMessage {
-                    role: "user".to_string(),
-                    content,
-                });
+                messages.push(ChatGptMessage {role: Role::User, content});
 
-                let response = get_chatgpt_response(&api_key, model, &messages);
-                let reply = &response.await?.choices[0].message.content;
+                let resp = get_chatgpt_response(&api_key, model, &messages);
+                let mesg = resp.await?.choices.pop().unwrap().message;
 
-                println!("{}", reply);
-
-                messages.push(ChatGptMessage {
-                    role: "assistant".to_string(),
-                    content: reply.to_string(),
-                });
+                println!("{}", mesg.content);
+                messages.push(mesg);
             }
             Signal::CtrlD | Signal::CtrlC => {
                 break;
