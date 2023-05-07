@@ -1,5 +1,6 @@
 use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline, Signal};
 use serde::{Deserialize, Serialize};
+use spinners::{Spinner, Spinners};
 use std::error::Error;
 use std::env;
 use termimad::MadSkin;
@@ -76,10 +77,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Signal::Success(content) => {
                 messages.push(ChatGptMessage {role: Role::User, content});
 
+                let mut spinner = Spinner::new(Spinners::Dots2, String::new());
+
                 let resp = get_chatgpt_response(&api_key, model, &messages);
                 let mesg = resp.await?.choices.pop().unwrap().message;
 
-                print!("{}", skin.term_text(&mesg.content));
+                spinner.stop_with_message(
+                    format!("{}", skin.term_text(&mesg.content))
+                );
                 messages.push(mesg);
             }
             Signal::CtrlD | Signal::CtrlC => {
