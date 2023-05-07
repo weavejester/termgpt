@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::env;
 
+#[derive(Serialize)]
+struct ChatGptRequest<'a> {
+    model: &'a str,
+    messages: &'a [ChatGptMessage],
+}
+
 #[derive(Deserialize)]
 struct ChatGptResponse {
     choices: Vec<ChatGptChoice>,
@@ -11,12 +17,6 @@ struct ChatGptResponse {
 #[derive(Deserialize)]
 struct ChatGptChoice {
     message: ChatGptMessage,
-}
-
-#[derive(Serialize)]
-struct ChatGptRequest<'a> {
-    model: String,
-    messages: &'a [ChatGptMessage],
 }
 
 #[derive(Deserialize, Serialize)]
@@ -32,15 +32,10 @@ async fn get_chatgpt_response(
 ) -> Result<ChatGptResponse, Box<dyn Error>> {
     let client = reqwest::Client::new();
 
-    let payload = ChatGptRequest {
-        model: model.to_string(),
-        messages,
-    };
-
     let response: ChatGptResponse = client
         .post("https://api.openai.com/v1/chat/completions")
         .header("Authorization", format!("Bearer {}", api_key))
-        .json(&payload)
+        .json(&ChatGptRequest { model, messages })
         .send()
         .await?
         .json()
