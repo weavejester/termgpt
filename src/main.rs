@@ -105,7 +105,10 @@ struct Args {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let api_key = env::var("OPENAI_API_KEY").unwrap();
+
+    let api_key = args.api_key
+        .or(env::var("OPENAI_API_KEY").ok())
+        .expect("OpenAI API key not set");
 
     main_loop(&api_key, &args.model)
 }
