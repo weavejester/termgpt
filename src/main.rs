@@ -1,9 +1,11 @@
 use clap::Parser;
+use rand::distributions::{Alphanumeric, DistString};
 use reedline::{DefaultPrompt, DefaultPromptSegment::Empty, Reedline, Signal};
 use serde::{Deserialize, Serialize};
 use spinners::{Spinner, Spinners};
 use std::env;
 use std::error::Error;
+use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::prelude::*;
@@ -17,6 +19,16 @@ enum Role {
     Assistant,
     System,
     User,
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", match self {
+            Role::Assistant => "assistant",
+            Role::System => "system",
+            Role::User => "user",
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -80,6 +92,11 @@ impl ChatMessages for TransientChatMessages {
 struct DurableChatMessages {
     messages: Vec<ChatGptMessage>,
     writer: BufWriter<File>,
+    session: String,
+}
+
+fn random_token(n: usize) -> String {
+    Alphanumeric.sample_string(&mut rand::thread_rng(), n)
 }
 
 impl DurableChatMessages {
@@ -93,7 +110,12 @@ impl DurableChatMessages {
         Ok(DurableChatMessages {
             messages: Vec::new(),
             writer: BufWriter::new(file),
+            session: random_token(8),
         })
+    }
+
+    fn log_header(&self, message: &ChatGptMessage) -> String {
+        format!("[session={} role={}]", self.session, message.role)
     }
 }
 
@@ -102,7 +124,9 @@ impl ChatMessages for DurableChatMessages {
         &self.messages
     }
     fn push(&mut self, message: ChatGptMessage) -> Result<(), Box<dyn Error>> {
+        writeln!(self.writer, "{}", self.log_header(&message))?;
         writeln!(self.writer, "{}", message.content)?;
+        self.writer.flush()?;
         self.messages.push(message);
         Ok(())
     }
