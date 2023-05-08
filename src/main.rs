@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use spinners::{Spinner, Spinners};
 use std::error::Error;
 use std::env;
+use std::fs::{File, OpenOptions};
+use std::io;
+use std::io::BufWriter;
+use std::io::prelude::*;
 use termimad::MadSkin;
 use termimad::crossterm::style::Color;
 
@@ -52,19 +56,51 @@ async fn get_chatgpt_response(
     Ok(response)
 }
 
-trait ChatMessageContainer {
+trait ChatMessages {
     fn messages(&self) -> &[ChatGptMessage];
-    fn push(&mut self, message: ChatGptMessage);
+    fn push(&mut self, message: ChatGptMessage) -> Result<(), Box<dyn Error>>;
 }
 
 struct TransientChatMessages(Vec<ChatGptMessage>);
 
-impl ChatMessageContainer for TransientChatMessages {
+impl ChatMessages for TransientChatMessages {
     fn messages(&self) -> &[ChatGptMessage] {
         &self.0
     }
-    fn push(&mut self, message: ChatGptMessage) {
+    fn push(&mut self, message: ChatGptMessage) -> Result<(), Box<dyn Error>> {
         self.0.push(message);
+        Ok(())
+    }
+}
+
+struct DurableChatMessages {
+    messages: Vec<ChatGptMessage>,
+    writer: BufWriter<File>,
+}
+
+impl DurableChatMessages {
+    fn new(filename: &str) -> io::Result<DurableChatMessages> {
+        let file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .create(true)
+            .open(filename)?;
+
+        Ok(DurableChatMessages {
+            messages: Vec::new(),
+            writer: BufWriter::new(file),
+        })
+    }
+}
+
+impl ChatMessages for DurableChatMessages {
+    fn messages(&self) -> &[ChatGptMessage] {
+        &self.messages
+    }
+    fn push(&mut self, message: ChatGptMessage) -> Result<(), Box<dyn Error>> {
+        writeln!(self.writer, "{}", message.content)?;
+        self.messages.push(message);
+        Ok(())
     }
 }
 
@@ -75,7 +111,7 @@ fn termimad_skin() -> MadSkin {
 }
 
 #[tokio::main]
-async fn main_loop<T: ChatMessageContainer>(
+async fn main_loop<T: ChatMessages>(
     api_key: &str,
     model: &str,
     mut messages: T,
@@ -89,7 +125,7 @@ async fn main_loop<T: ChatMessageContainer>(
         let sig = line_editor.read_line(&prompt)?;
         match sig {
             Signal::Success(content) => {
-                messages.push(ChatGptMessage {role: Role::User, content});
+                messages.push(ChatGptMessage {role: Role::User, content})?;
 
                 let mut spinner = Spinner::new(Spinners::Dots2, String::new());
 
@@ -101,7 +137,7 @@ async fn main_loop<T: ChatMessageContainer>(
                 spinner.stop_with_message(
                     format!("{}", term_skin.term_text(&mesg.content))
                 );
-                messages.push(mesg);
+                messages.push(mesg)?;
             }
             Signal::CtrlD | Signal::CtrlC => {
                 break;
@@ -121,6 +157,10 @@ struct Args {
     /// OpenAI API Key [default: $OPENAI_API_KEY]
     #[arg(long)]
     api_key: Option<String>,
+
+    /// Persist session to a file
+    #[arg(short, long)]
+    file: Option<String>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -130,7 +170,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         .or(env::var("OPENAI_API_KEY").ok())
         .expect("OpenAI API key not set");
 
-    let messages = TransientChatMessages(Vec::new());
-
-    main_loop(&api_key, &args.model, messages)
+    match args.file {
+        Some(filename) => {
+            let mesgs = DurableChatMessages::new(&filename)
+                .expect("Unable to open session file");
+            main_loop(&api_key, &args.model, mesgs)
+        }
+        None => {
+            let mesgs = TransientChatMessages(Vec::new());
+            main_loop(&api_key, &args.model, mesgs)
+        }
+    }
 }
