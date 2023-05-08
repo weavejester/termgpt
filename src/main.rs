@@ -1,4 +1,5 @@
-use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline, Signal};
+use clap::Parser;
+use reedline::{DefaultPrompt, DefaultPromptSegment::Empty, Reedline, Signal};
 use serde::{Deserialize, Serialize};
 use spinners::{Spinner, Spinners};
 use std::error::Error;
@@ -58,16 +59,11 @@ fn termimad_skin() -> MadSkin {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let api_key = env::var("OPENAI_API_KEY")?;
-    let model = "gpt-3.5-turbo";
-    let skin = termimad_skin();
-
+async fn main_loop(api_key: &str, model: &str) -> Result<(), Box<dyn Error>> {
     let mut line_editor = Reedline::create();
-    let prompt = DefaultPrompt::new(
-        DefaultPromptSegment::Empty,
-        DefaultPromptSegment::Empty,
-    );
+    let prompt = DefaultPrompt::new(Empty, Empty);
+
+    let term_skin = termimad_skin();
 
     let mut messages: Vec<ChatGptMessage> = Vec::new();
 
@@ -83,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let mesg = resp.await?.choices.pop().unwrap().message;
 
                 spinner.stop_with_message(
-                    format!("{}", skin.term_text(&mesg.content))
+                    format!("{}", term_skin.term_text(&mesg.content))
                 );
                 messages.push(mesg);
             }
@@ -93,4 +89,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// OpenAI model to use
+    #[arg(short, long, default_value = "gpt-3.5-turbo")]
+    model: String,
+
+    /// OpenAI API Key [default: $OPENAI_API_KEY]
+    #[arg(long)]
+    api_key: Option<String>,
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+    let api_key = env::var("OPENAI_API_KEY").unwrap();
+
+    main_loop(&api_key, &args.model)
 }
