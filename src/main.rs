@@ -9,7 +9,7 @@ use termimad::crossterm::style::Color;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum Role { Assistant, User }
+enum Role { Assistant, System, User }
 
 #[derive(Serialize)]
 struct ChatGptRequest<'a> {
