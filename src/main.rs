@@ -2,18 +2,22 @@ use clap::Parser;
 use reedline::{DefaultPrompt, DefaultPromptSegment::Empty, Reedline, Signal};
 use serde::{Deserialize, Serialize};
 use spinners::{Spinner, Spinners};
-use std::error::Error;
 use std::env;
+use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::io::BufWriter;
 use std::io::prelude::*;
-use termimad::MadSkin;
+use std::io::BufWriter;
 use termimad::crossterm::style::Color;
+use termimad::MadSkin;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum Role { Assistant, System, User }
+enum Role {
+    Assistant,
+    System,
+    User,
+}
 
 #[derive(Serialize)]
 struct ChatGptRequest<'a> {
@@ -40,7 +44,7 @@ struct ChatGptMessage {
 async fn get_chatgpt_response(
     api_key: &str,
     model: &str,
-    messages: &[ChatGptMessage]
+    messages: &[ChatGptMessage],
 ) -> Result<ChatGptResponse, Box<dyn Error>> {
     let client = reqwest::Client::new();
 
@@ -125,18 +129,22 @@ async fn main_loop<T: ChatMessages>(
         let sig = line_editor.read_line(&prompt)?;
         match sig {
             Signal::Success(content) => {
-                messages.push(ChatGptMessage {role: Role::User, content})?;
+                messages.push(ChatGptMessage {
+                    role: Role::User,
+                    content,
+                })?;
 
                 let mut spinner = Spinner::new(Spinners::Dots2, String::new());
 
-                let resp = get_chatgpt_response(
-                    api_key, model, &messages.messages());
+                let resp =
+                    get_chatgpt_response(api_key, model, &messages.messages());
 
                 let mesg = resp.await?.choices.pop().unwrap().message;
 
-                spinner.stop_with_message(
-                    format!("{}", term_skin.term_text(&mesg.content))
-                );
+                spinner.stop_with_message(format!(
+                    "{}",
+                    term_skin.term_text(&mesg.content)
+                ));
                 messages.push(mesg)?;
             }
             Signal::CtrlD | Signal::CtrlC => {
@@ -166,7 +174,8 @@ struct Args {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    let api_key = args.api_key
+    let api_key = args
+        .api_key
         .or(env::var("OPENAI_API_KEY").ok())
         .expect("OpenAI API key not set");
 
