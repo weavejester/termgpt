@@ -5,7 +5,6 @@ use serde_jsonlines::{json_lines, JsonLinesWriter};
 use spinners::{Spinner, Spinners};
 use std::env;
 use std::error::Error;
-use std::fmt;
 use std::fs::File;
 use std::io;
 use std::path::Path;
@@ -18,16 +17,6 @@ enum Role {
     Assistant,
     System,
     User,
-}
-
-impl fmt::Display for Role {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            Role::Assistant => "assistant",
-            Role::System => "system",
-            Role::User => "user",
-        })
-    }
 }
 
 #[derive(Serialize)]
