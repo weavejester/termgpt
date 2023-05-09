@@ -181,8 +181,8 @@ struct Args {
     api_key: Option<String>,
 
     /// Persist session to a JSONL file
-    #[arg(short, long)]
-    file: Option<String>,
+    #[arg(short, long, value_name = "FILE")]
+    session: Option<String>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -193,7 +193,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .or(env::var("OPENAI_API_KEY").ok())
         .expect("OpenAI API key not set");
 
-    match args.file {
+    match args.session {
         Some(filename) => {
             let mesgs = DurableChatMessages::new(&filename)
                 .expect("Unable to open session file");
