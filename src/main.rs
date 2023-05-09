@@ -71,35 +71,13 @@ async fn get_chatgpt_response(
     Ok(response)
 }
 
-trait ChatMessages {
-    fn messages(&self) -> &[ChatGptMessage];
-    fn push(&mut self, message: ChatGptMessage) -> Result<(), Box<dyn Error>>;
+trait ChatMessageListener {
+    fn on_message(&mut self, message: &ChatGptMessage) -> Result<(), Box<dyn Error>>;
 }
 
-struct TransientChatMessages(Vec<ChatGptMessage>);
-
-impl ChatMessages for TransientChatMessages {
-    fn messages(&self) -> &[ChatGptMessage] {
-        &self.0
-    }
-    fn push(&mut self, message: ChatGptMessage) -> Result<(), Box<dyn Error>> {
-        self.0.push(message);
-        Ok(())
-    }
-}
-
-struct DurableChatMessages {
+struct ChatMessages<'a> {
     messages: Vec<ChatGptMessage>,
-    writer: JsonLinesWriter<File>,
-}
-
-fn session_writer(filename: &str) -> io::Result<JsonLinesWriter<File>> {
-    let file = File::options()
-        .write(true)
-        .append(true)
-        .create(true)
-        .open(filename)?;
-    Ok(JsonLinesWriter::new(file))
+    listeners: Vec<Box<dyn ChatMessageListener + 'a>>,
 }
 
 fn read_session_messages(filename: &str) -> io::Result<Vec<ChatGptMessage>> {
@@ -111,23 +89,55 @@ fn read_session_messages(filename: &str) -> io::Result<Vec<ChatGptMessage>> {
     }
 }
 
-impl DurableChatMessages {
-    fn new(filename: &str) -> io::Result<DurableChatMessages> {
-        Ok(DurableChatMessages {
+impl<'a> ChatMessages<'a> {
+    fn new() -> ChatMessages<'a> {
+        ChatMessages {
+            messages: Vec::new(),
+            listeners: Vec::new(),
+        }
+    }
+
+    fn from_file(filename: &str) -> io::Result<ChatMessages<'a>> {
+        Ok(ChatMessages {
             messages: read_session_messages(filename)?,
-            writer: session_writer(filename)?,
+            listeners: Vec::new(),
+        })
+    }
+
+    fn register<L: ChatMessageListener + 'a>(&mut self, listener: L) {
+        self.listeners.push(Box::new(listener));
+    }
+
+    fn push(&mut self, message: ChatGptMessage) -> Result<(), Box<dyn Error>> {
+        for listener in self.listeners.iter_mut() {
+            listener.on_message(&message)?;
+        }
+        self.messages.push(message);
+        Ok(())
+    }
+}
+
+struct SessionAppendListener {
+    writer: JsonLinesWriter<File>,
+}
+
+impl SessionAppendListener {
+    fn new(filename: &str) -> io::Result<SessionAppendListener> {
+        let file = File::options()
+            .write(true)
+            .append(true)
+            .create(true)
+            .open(filename)?;
+        Ok(SessionAppendListener {
+            writer: JsonLinesWriter::new(file)
         })
     }
 }
 
-impl ChatMessages for DurableChatMessages {
-    fn messages(&self) -> &[ChatGptMessage] {
-        &self.messages
-    }
-    fn push(&mut self, message: ChatGptMessage) -> Result<(), Box<dyn Error>> {
+impl ChatMessageListener for SessionAppendListener {
+    fn on_message(&mut self, message: &ChatGptMessage) -> Result<(), Box<dyn Error>> {
         self.writer.write(&message)?;
         self.writer.flush()?;
-        self.messages.push(message);
         Ok(())
     }
 }
@@ -139,10 +149,10 @@ fn termimad_skin() -> MadSkin {
 }
 
 #[tokio::main]
-async fn main_loop<T: ChatMessages>(
+async fn main_loop(
     api_key: &str,
     model: &str,
-    mut messages: T,
+    messages: &mut ChatMessages,
 ) -> Result<(), Box<dyn Error>> {
     let mut line_editor = Reedline::create();
     let prompt = DefaultPrompt::new(Empty, Empty);
@@ -161,7 +171,7 @@ async fn main_loop<T: ChatMessages>(
                 let mut spinner = Spinner::new(Spinners::Dots2, String::new());
 
                 let resp =
-                    get_chatgpt_response(api_key, model, &messages.messages());
+                    get_chatgpt_response(api_key, model, &messages.messages);
 
                 let mesg = resp.await?.choices.pop().unwrap().message;
 
@@ -203,15 +213,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         .or(env::var("OPENAI_API_KEY").ok())
         .expect("OpenAI API key not set");
 
-    match args.session {
+    let mut messages = match args.session {
         Some(filename) => {
-            let mesgs = DurableChatMessages::new(&filename)
-                .expect("Unable to open session file");
-            main_loop(&api_key, &args.model, mesgs)
+            let mut messages = ChatMessages::from_file(&filename)
+                .expect("could not read session file");
+            let appender = SessionAppendListener::new(&filename)
+                .expect("count not open session file for writing");
+            messages.register(appender);
+            messages
         }
-        None => {
-            let mesgs = TransientChatMessages(Vec::new());
-            main_loop(&api_key, &args.model, mesgs)
-        }
-    }
+        None => ChatMessages::new(),
+    };
+
+    main_loop(&api_key, &args.model, &mut messages)
 }
