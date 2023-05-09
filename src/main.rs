@@ -1,13 +1,14 @@
 use clap::Parser;
 use reedline::{DefaultPrompt, DefaultPromptSegment::Empty, Reedline, Signal};
 use serde::{Deserialize, Serialize};
-use serde_jsonlines::JsonLinesWriter;
+use serde_jsonlines::{json_lines, JsonLinesWriter};
 use spinners::{Spinner, Spinners};
 use std::env;
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::io;
+use std::path::Path;
 use termimad::crossterm::style::Color;
 use termimad::MadSkin;
 
@@ -101,10 +102,19 @@ fn session_writer(filename: &str) -> io::Result<JsonLinesWriter<File>> {
     Ok(JsonLinesWriter::new(file))
 }
 
+fn read_session_messages(filename: &str) -> io::Result<Vec<ChatGptMessage>> {
+    let path = Path::new(filename);
+    if path.try_exists()? {
+        json_lines::<ChatGptMessage, _>(path)?.collect::<io::Result<Vec<_>>>()
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 impl DurableChatMessages {
     fn new(filename: &str) -> io::Result<DurableChatMessages> {
         Ok(DurableChatMessages {
-            messages: Vec::new(),
+            messages: read_session_messages(filename)?,
             writer: session_writer(filename)?,
         })
     }
