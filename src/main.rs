@@ -7,6 +7,7 @@ use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use termimad::crossterm::style::Color;
 use termimad::MadSkin;
@@ -110,16 +111,14 @@ struct SessionAppendListener {
     writer: JsonLinesWriter<File>,
 }
 
+fn open_file_for_appending(filename: &str) -> io::Result<File>{
+    File::options().write(true).append(true).create(true).open(filename)
+}
+
 impl SessionAppendListener {
     fn new(filename: &str) -> io::Result<SessionAppendListener> {
-        let file = File::options()
-            .write(true)
-            .append(true)
-            .create(true)
-            .open(filename)?;
-        Ok(SessionAppendListener {
-            writer: JsonLinesWriter::new(file)
-        })
+        let writer = JsonLinesWriter::new(open_file_for_appending(filename)?);
+        Ok(SessionAppendListener { writer })
     }
 }
 
@@ -130,6 +129,26 @@ impl ChatMessageListener for SessionAppendListener {
         Ok(())
     }
 }
+
+struct OutputAppendListener {
+    writer: BufWriter<File>,
+}
+
+impl OutputAppendListener {
+    fn new(filename: &str) -> io::Result<OutputAppendListener> {
+        let writer = BufWriter::new(open_file_for_appending(filename)?);
+        Ok(OutputAppendListener { writer })
+    }
+}
+
+impl ChatMessageListener for OutputAppendListener {
+    fn on_message(&mut self, message: &ChatGptMessage) -> Result<(), Box<dyn Error>> {
+        writeln!(self.writer, "{}\n", message.content)?;
+        self.writer.flush()?;
+        Ok(())
+    }
+}
+
 
 fn termimad_skin() -> MadSkin {
     let mut skin = MadSkin::default_dark();
@@ -192,6 +211,10 @@ struct Args {
     /// Persist session to a JSONL file
     #[arg(short, long, value_name = "FILE")]
     session: Option<String>,
+
+    /// Output conversation to a plaintext file
+    #[arg(short, long, value_name = "FILE")]
+    output: Option<String>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -206,13 +229,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some(filename) => {
             let mut messages = ChatMessages::from_file(&filename)
                 .expect("could not read session file");
-            let appender = SessionAppendListener::new(&filename)
-                .expect("count not open session file for writing");
-            messages.register(appender);
+            let listener = SessionAppendListener::new(&filename)
+                .expect("could not open session file for writing");
+            messages.register(listener);
             messages
         }
         None => ChatMessages::new(),
     };
+
+    if let Some(filename) = args.output {
+        let listener = OutputAppendListener::new(&filename)
+            .expect("could not open output file for writing");
+        messages.register(listener);
+    }
 
     main_loop(&api_key, &args.model, &mut messages)
 }
