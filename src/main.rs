@@ -1,15 +1,13 @@
 use clap::Parser;
-use rand::distributions::{Alphanumeric, DistString};
 use reedline::{DefaultPrompt, DefaultPromptSegment::Empty, Reedline, Signal};
 use serde::{Deserialize, Serialize};
+use serde_jsonlines::JsonLinesWriter;
 use spinners::{Spinner, Spinners};
 use std::env;
 use std::error::Error;
 use std::fmt;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io;
-use std::io::prelude::*;
-use std::io::BufWriter;
 use termimad::crossterm::style::Color;
 use termimad::MadSkin;
 
@@ -91,31 +89,24 @@ impl ChatMessages for TransientChatMessages {
 
 struct DurableChatMessages {
     messages: Vec<ChatGptMessage>,
-    writer: BufWriter<File>,
-    session: String,
+    writer: JsonLinesWriter<File>,
 }
 
-fn random_token(n: usize) -> String {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), n)
+fn session_writer(filename: &str) -> io::Result<JsonLinesWriter<File>> {
+    let file = File::options()
+        .write(true)
+        .append(true)
+        .create(true)
+        .open(filename)?;
+    Ok(JsonLinesWriter::new(file))
 }
 
 impl DurableChatMessages {
     fn new(filename: &str) -> io::Result<DurableChatMessages> {
-        let file = OpenOptions::new()
-            .write(true)
-            .append(true)
-            .create(true)
-            .open(filename)?;
-
         Ok(DurableChatMessages {
             messages: Vec::new(),
-            writer: BufWriter::new(file),
-            session: random_token(8),
+            writer: session_writer(filename)?,
         })
-    }
-
-    fn log_header(&self, message: &ChatGptMessage) -> String {
-        format!("[session={} role={}]", self.session, message.role)
     }
 }
 
@@ -124,8 +115,7 @@ impl ChatMessages for DurableChatMessages {
         &self.messages
     }
     fn push(&mut self, message: ChatGptMessage) -> Result<(), Box<dyn Error>> {
-        writeln!(self.writer, "{}", self.log_header(&message))?;
-        writeln!(self.writer, "{}", message.content)?;
+        self.writer.write(&message)?;
         self.writer.flush()?;
         self.messages.push(message);
         Ok(())
@@ -190,7 +180,7 @@ struct Args {
     #[arg(long)]
     api_key: Option<String>,
 
-    /// Persist session to a file
+    /// Persist session to a JSONL file
     #[arg(short, long)]
     file: Option<String>,
 }
