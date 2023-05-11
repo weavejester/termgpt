@@ -10,6 +10,7 @@ use std::io;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use termimad::crossterm::style::Color;
+use termimad::crossterm::tty::IsTty;
 use termimad::MadSkin;
 
 #[derive(Deserialize, Serialize)]
@@ -157,7 +158,7 @@ fn termimad_skin() -> MadSkin {
 }
 
 #[tokio::main]
-async fn main_loop(
+async fn repl_loop(
     api_key: &str,
     model: &str,
     messages: &mut ChatMessages,
@@ -217,6 +218,20 @@ struct Args {
     output: Option<String>,
 }
 
+#[tokio::main]
+async fn print_response(
+    api_key: &str,
+    model: &str,
+    messages: &mut ChatMessages<'_>,
+) -> Result<(), Box<dyn Error>> {
+    let resp = get_chatgpt_response(api_key, model, &messages.messages);
+    let mesg = resp.await?.choices.pop().unwrap().message;
+
+    println!("{}", mesg.content);
+    messages.push(mesg)?;
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
@@ -243,5 +258,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         messages.register(listener);
     }
 
-    main_loop(&api_key, &args.model, &mut messages)
+    let stdin = io::stdin();
+
+    if stdin.is_tty() {
+        repl_loop(&api_key, &args.model, &mut messages)
+    } else {
+        let content = io::read_to_string(stdin)?;
+        messages.push(ChatGptMessage { role: Role::User, content })?;
+        print_response(&api_key, &args.model, &mut messages)
+    }
 }
